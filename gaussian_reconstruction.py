@@ -237,12 +237,15 @@ def run_colmap_minimal(images_dir: Path, workspace: Path):
             print("    ❌ Aucun modèle créé par COLMAP")
             return False
         
-        # Convertir en format Gaussian Splatting
+        # Convertir en format texte pour Gaussian Splatting
         print("    📄 Conversion format...")
+        sparse_txt_dir = workspace / "sparse_txt"
+        sparse_txt_dir.mkdir(exist_ok=True)
+        
         result = subprocess.run([
             colmap_exe, "model_converter",
             "--input_path", str(model_dir),
-            "--output_path", str(workspace / "sparse.txt"),
+            "--output_path", str(sparse_txt_dir),
             "--output_type", "TXT"
         ], capture_output=True, text=True)
         
