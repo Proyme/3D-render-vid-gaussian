@@ -56,7 +56,7 @@ def reconstruct_3d_gaussian(video_path: str, output_glb: str):
         
         # Étape 4 : Export GLB
         print("  4/4 Export GLB...")
-        ply_path = output_dir / "point_cloud" / "iteration_30000" / "point_cloud.ply"
+        ply_path = output_dir / "point_cloud" / "iteration_7000" / "point_cloud.ply"
         
         if not ply_path.exists():
             print(f"  ❌ Fichier PLY non trouvé: {ply_path}")
@@ -297,9 +297,9 @@ def run_gaussian_splatting(workspace: Path, output_dir: Path):
             "python3", str(gs_path / "train.py"),
             "-s", str(workspace),
             "-m", str(output_dir),
-            "--iterations", "30000",
+            "--iterations", "7000",
             "--test_iterations", "-1",
-            "--save_iterations", "30000"
+            "--save_iterations", "7000"
         ], check=True)
         
         return True
@@ -320,17 +320,17 @@ def convert_gaussian_to_glb(ply_path: str, glb_path: str):
         
         # Charger le PLY Gaussian
         plydata = PlyData.read(ply_path)
-        vertices = plydata['vertex']
+        vertex_data = plydata['vertex'].data
         
         # Extraire positions
-        positions = np.vstack([vertices['x'], vertices['y'], vertices['z']]).T
+        positions = np.vstack([vertex_data['x'], vertex_data['y'], vertex_data['z']]).T
         
         # Extraire couleurs si disponibles
-        if 'red' in vertices.dtype.names:
+        if 'red' in vertex_data.dtype.names:
             colors = np.vstack([
-                vertices['red'],
-                vertices['green'],
-                vertices['blue']
+                vertex_data['red'],
+                vertex_data['green'],
+                vertex_data['blue']
             ]).T / 255.0
         else:
             colors = np.ones_like(positions) * 0.5
