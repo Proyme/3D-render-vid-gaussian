@@ -1,11 +1,17 @@
 #!/bin/bash
 
-echo "🚀 Démarrage Backend 3D - Gaussian Splatting"
-echo "=============================================="
+echo "🚀 Démarrage Backend 3D - TripoSR"
+echo "=================================="
 
 # Vérifier GPU
 echo "📊 Vérification GPU..."
 nvidia-smi --query-gpu=name,memory.total,compute_cap --format=csv,noheader
+
+echo ""
+echo "✅ GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
+echo "✅ CUDA: $(nvcc --version | grep release | awk '{print $5}' | sed 's/,//')"
+echo "✅ Compute: $(nvidia-smi --query-gpu=compute_cap --format=csv,noheader)"
+echo "⚡ Performance estimée: 30-60 secondes/génération"
 
 # Créer les dossiers
 mkdir -p uploads outputs gaussian_workspace
