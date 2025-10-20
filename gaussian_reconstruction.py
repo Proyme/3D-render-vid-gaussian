@@ -20,10 +20,10 @@ def reconstruct_3d_gaussian(video_path: str, output_glb: str):
     """
     print("🚀 Reconstruction 3D avec Gaussian Splatting (RTX 5090)")
     
-    # Créer workspace
+    # Créer workspace (Gaussian Splatting attend un dossier "images")
     video_name = Path(video_path).stem
     workspace = Path("gaussian_workspace") / video_name
-    images_dir = workspace / "input"
+    images_dir = workspace / "images"  # Gaussian Splatting cherche "images/"
     output_dir = workspace / "output"
     
     workspace.mkdir(parents=True, exist_ok=True)
