@@ -399,18 +399,38 @@ def convert_gaussian_to_glb(ply_path: str, glb_path: str):
             mesh_o3d.scale(1.0 / max_bound, center=mesh_o3d.get_center())
         
         # Exporter en GLB avec couleurs
-        print("    💾 Export GLB...")
-        temp_ply = str(Path(ply_path).parent / "temp_mesh.ply")
+        print("    Export GLB...")
+        temp_ply = str(Path(ply_path).parent / "temp_ply.ply")
         o3d.io.write_triangle_mesh(temp_ply, mesh_o3d)
         
-        # Charger avec trimesh et exporter GLB
+        # Charger avec trimesh et nettoyer
         mesh = trimesh.load(temp_ply)
+        
+        # Nettoyer les NaN et valeurs invalides
+        print("    Nettoyage final...")
+        mesh.remove_degenerate_faces()
+        mesh.remove_duplicate_faces()
+        mesh.remove_infinite_values()
+        mesh.remove_unreferenced_vertices()
+        
+        # Vérifier et corriger les normales
+        if hasattr(mesh, 'vertex_normals'):
+            normals = mesh.vertex_normals
+            # Remplacer les NaN par des valeurs par défaut
+            normals = np.nan_to_num(normals, nan=0.0, posinf=0.0, neginf=0.0)
+            # Normaliser
+            norms = np.linalg.norm(normals, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0  # Éviter division par zéro
+            normals = normals / norms
+            mesh.vertex_normals = normals
+        
+        # Exporter en GLB
         mesh.export(glb_path, file_type='glb')
         
         # Nettoyer
         Path(temp_ply).unlink()
         
-        print(f"    ✅ GLB exporté: {glb_path}")
+        print(f"    GLB exporté: {glb_path}")
         return True
         
     except Exception as e:
