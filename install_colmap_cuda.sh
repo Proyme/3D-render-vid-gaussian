@@ -29,7 +29,32 @@ apt-get install -y \
     qtbase5-dev \
     libqt5opengl5-dev \
     libcgal-dev \
-    libcgal-qt5-dev
+    libcgal-qt5-dev \
+    libatlas-base-dev \
+    libsuitesparse-dev
+
+# Installer Ceres Solver avec CUDA
+echo "📦 Installation Ceres Solver avec CUDA..."
+cd /workspace
+rm -rf ceres-solver
+git clone https://github.com/ceres-solver/ceres-solver.git
+cd ceres-solver
+git checkout 2.1.0
+
+mkdir -p build
+cd build
+
+cmake .. \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_EXAMPLES=OFF \
+    -DUSE_CUDA=ON \
+    -DCMAKE_INSTALL_PREFIX=/usr/local
+
+make -j$(nproc)
+make install
+
+echo "✅ Ceres Solver installé"
 
 # Cloner COLMAP
 echo "📥 Clonage COLMAP..."
