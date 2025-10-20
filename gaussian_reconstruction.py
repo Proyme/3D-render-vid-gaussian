@@ -199,6 +199,7 @@ def run_colmap_minimal(images_dir: Path, workspace: Path):
             "--database_path", str(database_path),
             "--image_path", str(images_dir),
             "--ImageReader.single_camera", "1",
+            "--ImageReader.camera_model", "PINHOLE",
             "--SiftExtraction.use_gpu", "0"
         ], capture_output=True, text=True)
         
