@@ -60,7 +60,7 @@ def read_root():
         }
     }
 
-def process_video_background(job_id: str, video_path: str, output_glb: str):
+def process_video_background(job_id: str, video_path: str, output_ply: str):
     """
     Traite la vidéo en arrière-plan
     """
@@ -68,11 +68,11 @@ def process_video_background(job_id: str, video_path: str, output_glb: str):
         jobs[job_id]["status"] = "processing"
         jobs[job_id]["message"] = "Génération en cours..."
         
-        success = reconstruct_3d_gaussian(video_path, output_glb)
+        success = reconstruct_3d_gaussian(video_path, output_ply)
         
-        if success and Path(output_glb).exists():
+        if success and Path(output_ply).exists():
             jobs[job_id]["status"] = "completed"
-            jobs[job_id]["download_url"] = f"/download/{job_id}.glb"
+            jobs[job_id]["download_url"] = f"/download/{job_id}.ply"
             jobs[job_id]["message"] = "Modèle 3D généré avec succès"
         else:
             jobs[job_id]["status"] = "failed"
@@ -97,7 +97,7 @@ async def generate_3d(file: UploadFile = File(...)):
         # Créer un job
         job_id = str(uuid.uuid4())
         video_path = UPLOAD_DIR / f"{job_id}.mp4"
-        output_glb = OUTPUT_DIR / f"{job_id}.glb"
+        output_ply = OUTPUT_DIR / f"{job_id}.ply"
         
         # Sauvegarder la vidéo
         with open(video_path, "wb") as buffer:
@@ -115,7 +115,7 @@ async def generate_3d(file: UploadFile = File(...)):
         # Lancer le traitement en arrière-plan
         thread = threading.Thread(
             target=process_video_background,
-            args=(job_id, str(video_path), str(output_glb))
+            args=(job_id, str(video_path), str(output_ply))
         )
         thread.daemon = True
         thread.start()
@@ -124,7 +124,7 @@ async def generate_3d(file: UploadFile = File(...)):
             "success": True,
             "job_id": job_id,
             "message": "Génération démarrée",
-            "estimated_time": "3-4 minutes"
+            "estimated_time": "2-3 minutes"
         }
         
     except Exception as e:
@@ -154,7 +154,7 @@ async def get_job_status(job_id: str):
 @app.get("/download/{filename}")
 async def download_model(filename: str):
     """
-    Télécharge un modèle 3D généré
+    Télécharge un modèle 3D généré (PLY Gaussian Splatting)
     """
     file_path = OUTPUT_DIR / filename
     
@@ -163,7 +163,7 @@ async def download_model(filename: str):
     
     return FileResponse(
         path=file_path,
-        media_type="model/gltf-binary",
+        media_type="application/octet-stream",
         filename=filename
     )
 

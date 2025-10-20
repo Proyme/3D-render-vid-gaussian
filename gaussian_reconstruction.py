@@ -54,15 +54,17 @@ def reconstruct_3d_gaussian(video_path: str, output_glb: str):
             print("  ❌ Échec Gaussian Splatting")
             return False
         
-        # Étape 4 : Export GLB
-        print("  4/4 Export GLB...")
-        ply_path = output_dir / "point_cloud" / "iteration_7000" / "point_cloud.ply"
+        # Étape 4 : Copier le PLY Gaussian (pas de conversion)
+        print("  4/4 Export PLY Gaussian...")
+        ply_source = output_dir / "point_cloud" / "iteration_3000" / "point_cloud.ply"
         
-        if not ply_path.exists():
-            print(f"  ❌ Fichier PLY non trouvé: {ply_path}")
+        if not ply_source.exists():
+            print(f"  ❌ Fichier PLY non trouvé: {ply_source}")
             return False
         
-        convert_gaussian_to_glb(str(ply_path), output_glb)
+        # Copier directement le PLY (format natif Gaussian Splatting)
+        shutil.copy(str(ply_source), output_glb)
+        print(f"  ✅ PLY exporté: {output_glb}")
         
         print("✅ Reconstruction terminée !")
         return True
