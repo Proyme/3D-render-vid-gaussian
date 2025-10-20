@@ -23,8 +23,13 @@ apt-get install -y \
 
 # Installer PyTorch Nightly avec CUDA 12.4 (support RTX 5090)
 echo "🔥 Installation de PyTorch Nightly (CUDA 12.4 - RTX 5090)..."
-pip3 uninstall -y torch torchvision torchaudio
-pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124
+pip3 uninstall -y torch torchvision torchaudio 2>/dev/null || true
+pip3 install --pre \
+    torch==2.7.0.dev20250226+cu124 \
+    torchvision==0.22.0.dev20250226+cu124 \
+    torchaudio==2.6.0.dev20250226+cu124 \
+    --index-url https://download.pytorch.org/whl/nightly/cu124 \
+    --no-cache-dir
 
 # Installer onnxruntime-gpu pour rembg
 echo "🚀 Installation de onnxruntime-gpu..."
