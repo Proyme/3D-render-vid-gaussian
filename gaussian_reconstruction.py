@@ -46,26 +46,24 @@ def reconstruct_3d_gaussian(video_path: str, output_glb: str):
             print("  ❌ Échec estimation poses")
             return False
         
-        # Étape 3 : MVS Dense Reconstruction (COLMAP)
-        print("  3/4 Reconstruction dense (MVS)...")
-        dense_dir = workspace / "dense"
-        dense_dir.mkdir(exist_ok=True)
+        # Étape 3 : Gaussian Splatting (GPU 100%)
+        print("  3/4 Gaussian Splatting (GPU RTX 4090 - 100%)...")
+        success = run_gaussian_splatting(workspace, output_dir)
         
-        success = run_colmap_mvs(workspace, dense_dir)
         if not success:
-            print("  ❌ Échec reconstruction dense")
+            print("  ❌ Échec Gaussian Splatting")
             return False
         
-        # Étape 4 : Reconstruction de surface (Screened Poisson)
-        print("  4/4 Reconstruction de surface (Mesh)...")
-        dense_ply = dense_dir / "fused.ply"
+        # Étape 4 : Conversion PLY → Mesh solide
+        print("  4/4 Conversion en mesh solide...")
+        ply_source = output_dir / "point_cloud" / "iteration_7000" / "point_cloud.ply"
         
-        if not dense_ply.exists():
-            print(f"  ❌ PLY dense non trouvé: {dense_ply}")
+        if not ply_source.exists():
+            print(f"  ❌ Fichier PLY non trouvé: {ply_source}")
             return False
         
-        # Convertir nuage dense → mesh solide
-        success = reconstruct_surface_mesh(str(dense_ply), output_glb)
+        # Convertir points → mesh simple et rapide
+        success = convert_ply_to_solid_mesh(str(ply_source), output_glb)
         
         if not success:
             print("  ❌ Échec reconstruction surface")
@@ -506,6 +504,79 @@ def convert_gaussian_to_glb(ply_path: str, glb_path: str):
         print(f"    ❌ Erreur conversion: {e}")
         import traceback
         traceback.print_exc()
+        return False
+
+def convert_ply_to_solid_mesh(ply_input: str, ply_output: str):
+    """
+    Conversion simple et rapide: PLY points → Mesh solide
+    Utilise Alpha Shapes (rapide et efficace)
+    """
+    try:
+        import open3d as o3d
+        
+        print("    📊 Chargement du nuage de points...")
+        pcd = o3d.io.read_point_cloud(ply_input)
+        
+        num_points = len(pcd.points)
+        print(f"    ✓ {num_points} points chargés")
+        
+        if num_points == 0:
+            return False
+        
+        has_colors = pcd.has_colors()
+        print(f"    ✓ Couleurs: {'Oui' if has_colors else 'Non'}")
+        
+        # Densifier le nuage de points
+        print("    🔄 Densification du nuage...")
+        pcd = pcd.voxel_down_sample(voxel_size=0.005)
+        
+        # Estimer les normales
+        print("    🔍 Estimation des normales...")
+        pcd.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.02, max_nn=30)
+        )
+        pcd.orient_normals_consistent_tangent_plane(30)
+        
+        # Alpha Shapes (rapide et simple)
+        print("    🎨 Création du mesh (Alpha Shapes)...")
+        distances = pcd.compute_nearest_neighbor_distance()
+        avg_dist = np.mean(distances)
+        alpha = avg_dist * 2.0
+        
+        mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
+        
+        if len(mesh.triangles) == 0:
+            print("    ⚠️  Alpha Shapes échoué, essai Poisson rapide...")
+            mesh, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
+                pcd, depth=8, scale=1.1
+            )
+        
+        print(f"    ✓ {len(mesh.triangles)} triangles créés")
+        
+        # Transférer couleurs
+        if has_colors and len(mesh.vertices) > 0:
+            print("    🎨 Transfert des couleurs...")
+            pcd_tree = o3d.geometry.KDTreeFlann(pcd)
+            colors = []
+            for vertex in mesh.vertices:
+                [_, idx, _] = pcd_tree.search_knn_vector_3d(vertex, 1)
+                colors.append(pcd.colors[idx[0]])
+            mesh.vertex_colors = o3d.utility.Vector3dVector(colors)
+        
+        # Nettoyer
+        mesh.remove_degenerate_triangles()
+        mesh.remove_duplicated_triangles()
+        mesh.remove_duplicated_vertices()
+        mesh.compute_vertex_normals()
+        
+        # Sauvegarder
+        o3d.io.write_triangle_mesh(ply_output, mesh, write_vertex_colors=has_colors)
+        
+        print(f"    ✅ Mesh créé avec {len(mesh.triangles)} faces")
+        return True
+        
+    except Exception as e:
+        print(f"    ❌ Erreur: {e}")
         return False
 
 def reconstruct_surface_mesh(ply_input: str, ply_output: str):
