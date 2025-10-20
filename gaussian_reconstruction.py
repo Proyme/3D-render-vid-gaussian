@@ -356,22 +356,16 @@ def convert_gaussian_to_glb(ply_path: str, glb_path: str):
         )
         pcd.orient_normals_consistent_tangent_plane(30)
         
-        # Ball Pivoting Algorithm (meilleur pour les nuages de points denses)
-        print("    🔄 Reconstruction Ball Pivoting...")
-        distances = pcd.compute_nearest_neighbor_distance()
-        avg_dist = np.mean(distances)
-        radii = [avg_dist * 1.5, avg_dist * 2, avg_dist * 3]
-        
-        mesh_o3d = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
-            pcd, o3d.utility.DoubleVector(radii)
+        # Poisson reconstruction (meilleur pour Gaussian Splatting)
+        print("    🔄 Reconstruction Poisson optimisée...")
+        mesh_o3d, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
+            pcd, depth=9, width=0, scale=1.1, linear_fit=False
         )
         
-        # Si Ball Pivoting échoue, utiliser Alpha Shape
-        if len(mesh_o3d.triangles) == 0:
-            print("    ⚠️  Ball Pivoting échoué, utilisation Alpha Shape...")
-            mesh_o3d = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(
-                pcd, alpha=0.03
-            )
+        # Nettoyer agressivement les artefacts (densité faible = bruit)
+        print("    🧹 Suppression des artefacts...")
+        vertices_to_remove = densities < np.quantile(densities, 0.1)
+        mesh_o3d.remove_vertices_by_mask(vertices_to_remove)
         
         print(f"    ✓ {len(mesh_o3d.triangles)} triangles créés")
         
