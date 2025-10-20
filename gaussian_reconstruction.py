@@ -193,45 +193,67 @@ def run_colmap_minimal(images_dir: Path, workspace: Path):
     
     try:
         # Feature extraction (CPU rapide)
-        subprocess.run([
+        print("    🔍 Feature extraction...")
+        result = subprocess.run([
             colmap_exe, "feature_extractor",
             "--database_path", str(database_path),
             "--image_path", str(images_dir),
             "--ImageReader.single_camera", "1",
             "--SiftExtraction.use_gpu", "0"
-        ], check=True, capture_output=True)
+        ], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"    ❌ Feature extraction failed: {result.stderr}")
+            return False
         
         # Feature matching (CPU rapide)
-        subprocess.run([
+        print("    🔗 Feature matching...")
+        result = subprocess.run([
             colmap_exe, "exhaustive_matcher",
             "--database_path", str(database_path),
             "--SiftMatching.use_gpu", "0"
-        ], check=True, capture_output=True)
+        ], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"    ❌ Feature matching failed: {result.stderr}")
+            return False
         
         # Mapper (reconstruction minimale)
-        subprocess.run([
+        print("    🗺️  Reconstruction...")
+        result = subprocess.run([
             colmap_exe, "mapper",
             "--database_path", str(database_path),
             "--image_path", str(images_dir),
             "--output_path", str(sparse_dir)
-        ], check=True, capture_output=True)
+        ], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"    ❌ Mapper failed: {result.stderr}")
+            return False
         
         # Vérifier
         model_dir = sparse_dir / "0"
         if not model_dir.exists():
+            print("    ❌ Aucun modèle créé par COLMAP")
             return False
         
         # Convertir en format Gaussian Splatting
-        subprocess.run([
+        print("    📄 Conversion format...")
+        result = subprocess.run([
             colmap_exe, "model_converter",
             "--input_path", str(model_dir),
             "--output_path", str(workspace / "sparse.txt"),
             "--output_type", "TXT"
-        ], check=True, capture_output=True)
+        ], capture_output=True, text=True)
         
+        if result.returncode != 0:
+            print(f"    ❌ Model converter failed: {result.stderr}")
+            return False
+        
+        print("    ✅ COLMAP terminé")
         return True
         
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         print(f"    ❌ Erreur COLMAP: {e}")
         return False
 
