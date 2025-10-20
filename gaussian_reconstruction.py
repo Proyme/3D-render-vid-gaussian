@@ -54,18 +54,22 @@ def reconstruct_3d_gaussian(video_path: str, output_glb: str):
             print("  ❌ Échec Gaussian Splatting")
             return False
         
-        # Étape 4 : Copier le PLY Gaussian (pas de conversion)
-        print("  4/4 Export PLY Gaussian...")
+        # Étape 4 : Reconstruction de surface (Points → Mesh)
+        print("  4/4 Reconstruction de surface (Poisson)...")
         ply_source = output_dir / "point_cloud" / "iteration_7000" / "point_cloud.ply"
         
         if not ply_source.exists():
             print(f"  ❌ Fichier PLY non trouvé: {ply_source}")
             return False
         
-        # Copier directement le PLY (format natif Gaussian Splatting)
-        shutil.copy(str(ply_source), output_glb)
-        print(f"  ✅ PLY exporté: {output_glb}")
+        # Convertir points → mesh avec Open3D
+        success = reconstruct_surface_mesh(str(ply_source), output_glb)
         
+        if not success:
+            print("  ❌ Échec reconstruction surface")
+            return False
+        
+        print(f"  ✅ Mesh avec surfaces exporté: {output_glb}")
         print("✅ Reconstruction terminée !")
         return True
         
@@ -438,6 +442,76 @@ def convert_gaussian_to_glb(ply_path: str, glb_path: str):
         
     except Exception as e:
         print(f"    ❌ Erreur conversion: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def reconstruct_surface_mesh(ply_input: str, ply_output: str):
+    """
+    Reconstruction de surface: Point Cloud → Mesh avec faces
+    Utilise Poisson Surface Reconstruction (Open3D)
+    """
+    try:
+        import open3d as o3d
+        
+        print("    📊 Chargement du nuage de points...")
+        pcd = o3d.io.read_point_cloud(ply_input)
+        
+        num_points = len(pcd.points)
+        print(f"    ✓ {num_points} points chargés")
+        
+        if num_points == 0:
+            print("    ❌ Aucun point dans le fichier")
+            return False
+        
+        # Estimer les normales (nécessaire pour Poisson)
+        print("    🔍 Estimation des normales...")
+        pcd.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
+        )
+        pcd.orient_normals_consistent_tangent_plane(30)
+        
+        # Reconstruction de surface Poisson
+        print("    🎨 Reconstruction de surface (Poisson)...")
+        mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
+            pcd, 
+            depth=9,  # Qualité (8-10 recommandé)
+            width=0,
+            scale=1.1,
+            linear_fit=False
+        )
+        
+        # Supprimer les triangles de faible densité (artefacts)
+        print("    🧹 Nettoyage du mesh...")
+        densities = np.asarray(densities)
+        density_threshold = np.quantile(densities, 0.01)
+        vertices_to_remove = densities < density_threshold
+        mesh.remove_vertices_by_mask(vertices_to_remove)
+        
+        # Transférer les couleurs du point cloud au mesh
+        if pcd.has_colors():
+            print("    🎨 Transfert des couleurs...")
+            mesh.vertex_colors = pcd.colors
+        
+        # Simplifier si trop de triangles
+        num_triangles = len(mesh.triangles)
+        print(f"    ✓ {num_triangles} triangles générés")
+        
+        if num_triangles > 100000:
+            print(f"    🔧 Simplification du mesh...")
+            target_triangles = 100000
+            mesh = mesh.simplify_quadric_decimation(target_triangles)
+            print(f"    ✓ Simplifié à {len(mesh.triangles)} triangles")
+        
+        # Sauvegarder
+        print(f"    💾 Sauvegarde du mesh...")
+        o3d.io.write_triangle_mesh(ply_output, mesh, write_vertex_colors=True)
+        
+        print(f"    ✅ Mesh avec {len(mesh.triangles)} faces créé")
+        return True
+        
+    except Exception as e:
+        print(f"    ❌ Erreur reconstruction surface: {e}")
         import traceback
         traceback.print_exc()
         return False
