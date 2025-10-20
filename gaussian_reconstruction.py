@@ -449,7 +449,7 @@ def convert_gaussian_to_glb(ply_path: str, glb_path: str):
 def reconstruct_surface_mesh(ply_input: str, ply_output: str):
     """
     Reconstruction de surface: Point Cloud → Mesh avec faces
-    Utilise Poisson Surface Reconstruction (Open3D)
+    Utilise Ball Pivoting + Alpha Shapes (Open3D)
     """
     try:
         import open3d as o3d
@@ -464,50 +464,81 @@ def reconstruct_surface_mesh(ply_input: str, ply_output: str):
             print("    ❌ Aucun point dans le fichier")
             return False
         
-        # Estimer les normales (nécessaire pour Poisson)
+        # Vérifier les couleurs
+        has_colors = pcd.has_colors()
+        print(f"    ✓ Couleurs: {'Oui' if has_colors else 'Non'}")
+        
+        # Nettoyer le point cloud
+        print("    🧹 Nettoyage du nuage de points...")
+        pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+        pcd, _ = pcd.remove_radius_outlier(nb_points=16, radius=0.05)
+        
+        # Estimer les normales
         print("    🔍 Estimation des normales...")
         pcd.estimate_normals(
-            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.05, max_nn=30)
         )
         pcd.orient_normals_consistent_tangent_plane(30)
         
-        # Reconstruction de surface Poisson
-        print("    🎨 Reconstruction de surface (Poisson)...")
-        mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-            pcd, 
-            depth=9,  # Qualité (8-10 recommandé)
-            width=0,
-            scale=1.1,
-            linear_fit=False
+        # Calculer les distances moyennes entre points
+        distances = pcd.compute_nearest_neighbor_distance()
+        avg_dist = np.mean(distances)
+        
+        # Ball Pivoting Algorithm
+        print("    🎨 Reconstruction de surface (Ball Pivoting)...")
+        radii = [avg_dist * 1.5, avg_dist * 2, avg_dist * 3]
+        mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
+            pcd,
+            o3d.utility.DoubleVector(radii)
         )
         
-        # Supprimer les triangles de faible densité (artefacts)
-        print("    🧹 Nettoyage du mesh...")
-        densities = np.asarray(densities)
-        density_threshold = np.quantile(densities, 0.01)
-        vertices_to_remove = densities < density_threshold
-        mesh.remove_vertices_by_mask(vertices_to_remove)
-        
-        # Transférer les couleurs du point cloud au mesh
-        if pcd.has_colors():
-            print("    🎨 Transfert des couleurs...")
-            mesh.vertex_colors = pcd.colors
-        
-        # Simplifier si trop de triangles
         num_triangles = len(mesh.triangles)
         print(f"    ✓ {num_triangles} triangles générés")
         
+        if num_triangles == 0:
+            print("    ⚠️  Ball Pivoting échoué, essai avec Alpha Shapes...")
+            # Fallback: Alpha Shapes
+            alpha = avg_dist * 2.5
+            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
+            num_triangles = len(mesh.triangles)
+            print(f"    ✓ {num_triangles} triangles générés (Alpha Shapes)")
+        
+        if num_triangles == 0:
+            print("    ❌ Impossible de créer un mesh")
+            return False
+        
+        # Transférer les couleurs
+        if has_colors:
+            print("    🎨 Transfert des couleurs...")
+            # Interpoler les couleurs du point cloud vers le mesh
+            mesh.vertex_colors = pcd.colors
+        
+        # Nettoyer le mesh
+        print("    🧹 Nettoyage du mesh...")
+        mesh.remove_degenerate_triangles()
+        mesh.remove_duplicated_triangles()
+        mesh.remove_duplicated_vertices()
+        mesh.remove_non_manifold_edges()
+        
+        # Lisser légèrement
+        print("    ✨ Lissage...")
+        mesh = mesh.filter_smooth_simple(number_of_iterations=2)
+        
+        # Recalculer les normales
+        mesh.compute_vertex_normals()
+        
+        # Simplifier si nécessaire
+        num_triangles = len(mesh.triangles)
         if num_triangles > 100000:
-            print(f"    🔧 Simplification du mesh...")
-            target_triangles = 100000
-            mesh = mesh.simplify_quadric_decimation(target_triangles)
-            print(f"    ✓ Simplifié à {len(mesh.triangles)} triangles")
+            print(f"    🔧 Simplification ({num_triangles} → 100k triangles)...")
+            mesh = mesh.simplify_quadric_decimation(100000)
+            mesh.compute_vertex_normals()
         
         # Sauvegarder
         print(f"    💾 Sauvegarde du mesh...")
-        o3d.io.write_triangle_mesh(ply_output, mesh, write_vertex_colors=True)
+        o3d.io.write_triangle_mesh(ply_output, mesh, write_vertex_colors=has_colors)
         
-        print(f"    ✅ Mesh avec {len(mesh.triangles)} faces créé")
+        print(f"    ✅ Mesh avec {len(mesh.triangles)} faces et couleurs créé")
         return True
         
     except Exception as e:
