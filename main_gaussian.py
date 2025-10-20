@@ -5,14 +5,14 @@ import os
 import uuid
 from pathlib import Path
 import shutil
-from gaussian_reconstruction import reconstruct_3d_gaussian
+from triposr_reconstruction import reconstruct_3d_triposr
 from typing import Dict
 import threading
 
 app = FastAPI(
-    title="Plats 3D - Gaussian Splatting (RTX 5090)",
-    description="API de reconstruction 3D ultra-rapide avec Gaussian Splatting",
-    version="3.0.0"
+    title="Plats 3D - TripoSR (RTX 4090)",
+    description="API de reconstruction 3D ultra-rapide avec TripoSR - Mesh texturé direct",
+    version="4.0.0"
 )
 
 # Stockage des jobs en mémoire
@@ -34,9 +34,10 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 # Configuration
-print("🚀 Backend 3D - Gaussian Splatting (RTX 5090)")
-print("⚡ Ultra-rapide: 1-2 minutes par génération")
-print("🔥 GPU RTX 5090 utilisé à 100%")
+print("🚀 Backend 3D - TripoSR (RTX 4090)")
+print("⚡ Ultra-rapide: 30-60 secondes par génération")
+print("🔥 GPU RTX 4090 utilisé à 100%")
+print("✨ Mesh texturé direct - Surfaces pleines garanties")
 print("✅ Système prêt")
 
 @app.get("/")
@@ -68,7 +69,7 @@ def process_video_background(job_id: str, video_path: str, output_ply: str):
         jobs[job_id]["status"] = "processing"
         jobs[job_id]["message"] = "Génération en cours..."
         
-        success = reconstruct_3d_gaussian(video_path, output_ply)
+        success = reconstruct_3d_triposr(video_path, output_ply)
         
         if success and Path(output_ply).exists():
             jobs[job_id]["status"] = "completed"
