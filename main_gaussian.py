@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import os
@@ -6,12 +6,17 @@ import uuid
 from pathlib import Path
 import shutil
 from gaussian_reconstruction import reconstruct_3d_gaussian
+from typing import Dict
+import threading
 
 app = FastAPI(
     title="Plats 3D - Gaussian Splatting (RTX 5090)",
     description="API de reconstruction 3D ultra-rapide avec Gaussian Splatting",
     version="3.0.0"
 )
+
+# Stockage des jobs en mémoire
+jobs: Dict[str, dict] = {}
 
 # CORS
 app.add_middleware(
@@ -55,43 +60,73 @@ def read_root():
         }
     }
 
+def process_video_background(job_id: str, video_path: str, output_glb: str):
+    """
+    Traite la vidéo en arrière-plan
+    """
+    try:
+        jobs[job_id]["status"] = "processing"
+        jobs[job_id]["message"] = "Génération en cours..."
+        
+        success = reconstruct_3d_gaussian(video_path, output_glb)
+        
+        if success and Path(output_glb).exists():
+            jobs[job_id]["status"] = "completed"
+            jobs[job_id]["download_url"] = f"/download/{job_id}.glb"
+            jobs[job_id]["message"] = "Modèle 3D généré avec succès"
+        else:
+            jobs[job_id]["status"] = "failed"
+            jobs[job_id]["message"] = "Échec de la reconstruction 3D"
+        
+        # Nettoyer la vidéo
+        Path(video_path).unlink(missing_ok=True)
+        
+    except Exception as e:
+        jobs[job_id]["status"] = "failed"
+        jobs[job_id]["message"] = str(e)
+        print(f"❌ Erreur job {job_id}: {e}")
+        import traceback
+        traceback.print_exc()
+
 @app.post("/generate-3d")
 async def generate_3d(file: UploadFile = File(...)):
     """
-    Génère un modèle 3D ultra-rapide avec Gaussian Splatting
-    RTX 5090 - 1-2 minutes
+    Démarre la génération 3D en arrière-plan et retourne immédiatement un job_id
     """
     try:
-        # Sauvegarder la vidéo
-        video_id = str(uuid.uuid4())
-        video_path = UPLOAD_DIR / f"{video_id}.mp4"
+        # Créer un job
+        job_id = str(uuid.uuid4())
+        video_path = UPLOAD_DIR / f"{job_id}.mp4"
+        output_glb = OUTPUT_DIR / f"{job_id}.glb"
         
+        # Sauvegarder la vidéo
         with open(video_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
-        print(f"🎥 Vidéo reçue: {file.filename}")
+        print(f"🎥 Vidéo reçue: {file.filename} (Job: {job_id})")
         
-        # Générer le modèle 3D avec Gaussian Splatting
-        output_glb = OUTPUT_DIR / f"{video_id}.glb"
+        # Initialiser le job
+        jobs[job_id] = {
+            "status": "queued",
+            "message": "En attente de traitement...",
+            "download_url": None
+        }
         
-        success = reconstruct_3d_gaussian(str(video_path), str(output_glb))
-        
-        if not success or not output_glb.exists():
-            raise HTTPException(status_code=500, detail="Échec de la reconstruction 3D")
-        
-        # Nettoyer
-        video_path.unlink()
+        # Lancer le traitement en arrière-plan
+        thread = threading.Thread(
+            target=process_video_background,
+            args=(job_id, str(video_path), str(output_glb))
+        )
+        thread.daemon = True
+        thread.start()
         
         return {
             "success": True,
-            "download_url": f"/download/{video_id}.glb",
-            "message": "Modèle 3D généré avec Gaussian Splatting",
-            "method": "Gaussian Splatting (RTX 5090)",
-            "estimated_time": "1-2 minutes"
+            "job_id": job_id,
+            "message": "Génération démarrée",
+            "estimated_time": "3-4 minutes"
         }
         
-    except HTTPException:
-        raise
     except Exception as e:
         print(f"❌ Erreur: {e}")
         import traceback
@@ -99,8 +134,22 @@ async def generate_3d(file: UploadFile = File(...)):
         return {
             "success": False,
             "error": str(e),
-            "message": "Échec de la reconstruction 3D"
+            "message": "Impossible de démarrer la génération"
         }
+
+@app.get("/job-status/{job_id}")
+async def get_job_status(job_id: str):
+    """
+    Vérifie l'état d'un job
+    """
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job non trouvé")
+    
+    return {
+        "success": True,
+        "job_id": job_id,
+        **jobs[job_id]
+    }
 
 @app.get("/download/{filename}")
 async def download_model(filename: str):
