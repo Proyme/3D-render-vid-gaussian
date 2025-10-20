@@ -56,7 +56,7 @@ def reconstruct_3d_gaussian(video_path: str, output_glb: str):
         
         # Étape 4 : Copier le PLY Gaussian (pas de conversion)
         print("  4/4 Export PLY Gaussian...")
-        ply_source = output_dir / "point_cloud" / "iteration_3000" / "point_cloud.ply"
+        ply_source = output_dir / "point_cloud" / "iteration_7000" / "point_cloud.ply"
         
         if not ply_source.exists():
             print(f"  ❌ Fichier PLY non trouvé: {ply_source}")
