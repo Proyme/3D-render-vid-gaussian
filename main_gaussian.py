@@ -84,15 +84,23 @@ async def generate_3d(file: UploadFile = File(...)):
         
         return {
             "success": True,
-            "model_url": f"/download/{video_id}.glb",
+            "download_url": f"/download/{video_id}.glb",
             "message": "Modèle 3D généré avec Gaussian Splatting",
             "method": "Gaussian Splatting (RTX 5090)",
             "estimated_time": "1-2 minutes"
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Erreur: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Échec de la reconstruction 3D"
+        }
 
 @app.get("/download/{filename}")
 async def download_model(filename: str):
