@@ -411,10 +411,29 @@ def convert_gaussian_to_glb(ply_path: str, glb_path: str):
         # Exporter
         print("    💾 Export GLB...")
         temp_ply = str(Path(ply_path).parent / "temp_mesh.ply")
-        o3d.io.write_triangle_mesh(temp_ply, mesh_o3d)
+        o3d.io.write_triangle_mesh(temp_ply, mesh_o3d, write_vertex_colors=True)
         
+        # Charger avec trimesh
         mesh = trimesh.load(temp_ply)
-        mesh.export(glb_path, file_type='glb')
+        
+        # Vérifier que les couleurs sont présentes
+        if not hasattr(mesh.visual, 'vertex_colors') or mesh.visual.vertex_colors is None:
+            print("    ⚠️  Couleurs manquantes, application d'une couleur par défaut...")
+            mesh.visual.vertex_colors = np.ones((len(mesh.vertices), 4)) * [200, 200, 200, 255]
+        
+        # S'assurer que le mesh a des faces (pas juste wireframe)
+        if len(mesh.faces) == 0:
+            print("    ❌ Aucune face détectée!")
+            return False
+        
+        print(f"    ✓ {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
+        
+        # Exporter en GLB avec les bonnes options
+        mesh.export(
+            glb_path, 
+            file_type='glb',
+            include_normals=True
+        )
         
         Path(temp_ply).unlink()
         
