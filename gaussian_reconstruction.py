@@ -310,10 +310,11 @@ def run_gaussian_splatting(workspace: Path, output_dir: Path):
 
 def convert_gaussian_to_glb(ply_path: str, glb_path: str):
     """
-    Convertit Gaussian Splatting PLY en GLB
+    Convertit Gaussian Splatting PLY en GLB avec couleurs préservées
     """
     import trimesh
     from plyfile import PlyData
+    import open3d as o3d
     
     try:
         print("    🔄 Conversion PLY → GLB...")
@@ -325,59 +326,70 @@ def convert_gaussian_to_glb(ply_path: str, glb_path: str):
         # Extraire positions
         positions = np.vstack([vertex_data['x'], vertex_data['y'], vertex_data['z']]).T
         
-        # Extraire couleurs si disponibles
+        # Extraire couleurs (Gaussian Splatting stocke en 0-255)
         if 'red' in vertex_data.dtype.names:
             colors = np.vstack([
                 vertex_data['red'],
                 vertex_data['green'],
                 vertex_data['blue']
-            ]).T / 255.0
+            ]).T
+            # Normaliser si nécessaire
+            if colors.max() > 1.0:
+                colors = colors / 255.0
         else:
-            colors = np.ones_like(positions) * 0.5
+            colors = np.ones_like(positions) * 0.7
         
         print(f"    ✓ {len(positions)} points chargés")
         
-        # Créer un mesh à partir du nuage de points
-        # Utiliser Ball Pivoting pour une reconstruction rapide
-        cloud = trimesh.PointCloud(positions, colors=colors)
-        
-        # Estimer les normales
-        print("    🔄 Estimation des normales...")
-        # Convertir en Open3D pour Poisson
-        import open3d as o3d
-        
+        # Convertir en Open3D
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(positions)
         pcd.colors = o3d.utility.Vector3dVector(colors)
         
+        # Estimer les normales
+        print("    🔄 Estimation des normales...")
         pcd.estimate_normals(
-            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.05, max_nn=30)
         )
         pcd.orient_normals_consistent_tangent_plane(30)
         
-        # Poisson reconstruction
+        # Poisson reconstruction avec paramètres optimisés
         print("    🔄 Reconstruction de surface...")
         mesh_o3d, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-            pcd, depth=9, width=0, scale=1.1, linear_fit=False
+            pcd, depth=8, width=0, scale=1.05, linear_fit=False
         )
         
-        # Nettoyer les densités faibles
-        vertices_to_remove = densities < np.quantile(densities, 0.01)
+        # Nettoyer agressivement les artefacts
+        print("    🧹 Nettoyage des artefacts...")
+        vertices_to_remove = densities < np.quantile(densities, 0.05)
         mesh_o3d.remove_vertices_by_mask(vertices_to_remove)
         
-        # Simplifier
-        target_triangles = min(len(mesh_o3d.triangles), 100000)
-        mesh_o3d = mesh_o3d.simplify_quadric_decimation(target_number_of_triangles=target_triangles)
-        
-        # Nettoyer les NaN et valeurs invalides
+        # Nettoyer la géométrie
         mesh_o3d.remove_degenerate_triangles()
         mesh_o3d.remove_duplicated_triangles()
         mesh_o3d.remove_duplicated_vertices()
         mesh_o3d.remove_non_manifold_edges()
         
+        # Transférer les couleurs du nuage de points au mesh
+        print("    🎨 Application des couleurs...")
+        mesh_vertices = np.asarray(mesh_o3d.vertices)
+        mesh_colors = np.zeros_like(mesh_vertices)
+        
+        # Pour chaque vertex du mesh, trouver le point le plus proche dans le nuage
+        from scipy.spatial import KDTree
+        tree = KDTree(positions)
+        distances, indices = tree.query(mesh_vertices, k=1)
+        mesh_colors = colors[indices]
+        
+        mesh_o3d.vertex_colors = o3d.utility.Vector3dVector(mesh_colors)
+        
+        # Simplifier
+        target_triangles = min(len(mesh_o3d.triangles), 50000)
+        mesh_o3d = mesh_o3d.simplify_quadric_decimation(target_number_of_triangles=target_triangles)
+        
         mesh_o3d.compute_vertex_normals()
         
-        # Centrer et normaliser (avec vérification)
+        # Centrer et normaliser
         center = mesh_o3d.get_center()
         bounds = mesh_o3d.get_max_bound() - mesh_o3d.get_min_bound()
         max_bound = np.max(bounds)
@@ -385,16 +397,14 @@ def convert_gaussian_to_glb(ply_path: str, glb_path: str):
         if not np.isnan(center).any() and not np.isnan(max_bound) and max_bound > 0:
             mesh_o3d.translate(-center)
             mesh_o3d.scale(1.0 / max_bound, center=mesh_o3d.get_center())
-        else:
-            print("    ⚠️  Normalisation ignorée (valeurs invalides)")
         
-        # Sauvegarder temporairement
+        # Exporter en GLB avec couleurs
+        print("    💾 Export GLB...")
         temp_ply = str(Path(ply_path).parent / "temp_mesh.ply")
         o3d.io.write_triangle_mesh(temp_ply, mesh_o3d)
         
         # Charger avec trimesh et exporter GLB
         mesh = trimesh.load(temp_ply)
-        mesh.fix_normals()
         mesh.export(glb_path, file_type='glb')
         
         # Nettoyer

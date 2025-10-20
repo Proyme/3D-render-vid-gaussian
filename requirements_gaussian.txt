@@ -15,6 +15,7 @@ rembg==2.0.56
 # 3D Processing
 trimesh==4.0.8
 numpy==1.26.3
+scipy==1.11.4
 
 # PyTorch (sera installé avec CUDA 12.4 via script)
 # torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124
