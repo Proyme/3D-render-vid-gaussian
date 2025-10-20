@@ -361,19 +361,32 @@ def convert_gaussian_to_glb(ply_path: str, glb_path: str):
             pcd, depth=9, width=0, scale=1.1, linear_fit=False
         )
         
-        # Nettoyer
+        # Nettoyer les densités faibles
         vertices_to_remove = densities < np.quantile(densities, 0.01)
         mesh_o3d.remove_vertices_by_mask(vertices_to_remove)
         
         # Simplifier
         target_triangles = min(len(mesh_o3d.triangles), 100000)
         mesh_o3d = mesh_o3d.simplify_quadric_decimation(target_number_of_triangles=target_triangles)
+        
+        # Nettoyer les NaN et valeurs invalides
+        mesh_o3d.remove_degenerate_triangles()
+        mesh_o3d.remove_duplicated_triangles()
+        mesh_o3d.remove_duplicated_vertices()
+        mesh_o3d.remove_non_manifold_edges()
+        
         mesh_o3d.compute_vertex_normals()
         
-        # Centrer et normaliser
-        mesh_o3d.translate(-mesh_o3d.get_center())
-        mesh_o3d.scale(1.0 / np.max(mesh_o3d.get_max_bound() - mesh_o3d.get_min_bound()), 
-                      center=mesh_o3d.get_center())
+        # Centrer et normaliser (avec vérification)
+        center = mesh_o3d.get_center()
+        bounds = mesh_o3d.get_max_bound() - mesh_o3d.get_min_bound()
+        max_bound = np.max(bounds)
+        
+        if not np.isnan(center).any() and not np.isnan(max_bound) and max_bound > 0:
+            mesh_o3d.translate(-center)
+            mesh_o3d.scale(1.0 / max_bound, center=mesh_o3d.get_center())
+        else:
+            print("    ⚠️  Normalisation ignorée (valeurs invalides)")
         
         # Sauvegarder temporairement
         temp_ply = str(Path(ply_path).parent / "temp_mesh.ply")
