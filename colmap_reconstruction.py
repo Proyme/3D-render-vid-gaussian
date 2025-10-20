@@ -31,7 +31,7 @@ def reconstruct_3d_from_images(images_dir: str, output_glb_path: str) -> bool:
     if platform.system() == "Windows":
         colmap_exe = r"D:\application plats en 3d\backend-3d\COLMAP\COLMAP.bat"
     else:
-        colmap_exe = "colmap"  # Linux/RunPod
+        colmap_exe = "colmap"  # Linux/RunPod (doit être installé)
     
     try:
         # Étape 1 : Feature extraction
@@ -159,8 +159,12 @@ def reconstruct_3d_from_video(video_path: str, output_glb_path: str) -> bool:
     num_extracted = len(list(images_dir.glob("*.jpg")))
     print(f"  ✓ {num_extracted} frames extraites et sauvegardées")
     
-    # Chemin vers COLMAP
-    colmap_exe = r"D:\application plats en 3d\backend-3d\COLMAP\COLMAP.bat"
+    # Chemin vers COLMAP (Linux pour RunPod, Windows pour local)
+    import platform
+    if platform.system() == "Windows":
+        colmap_exe = r"D:\application plats en 3d\backend-3d\COLMAP\COLMAP.bat"
+    else:
+        colmap_exe = "colmap"  # Linux/RunPod
     
     # Étape 2 : Feature extraction
     print("  2/6 Extraction des features...")

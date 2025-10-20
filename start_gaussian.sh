@@ -1,7 +1,7 @@
 #!/bin/bash
 
-echo "🚀 Démarrage Backend 3D - TripoSR"
-echo "=================================="
+echo "🚀 Démarrage Backend 3D - COLMAP"
+echo "================================="
 
 # Vérifier GPU
 echo "📊 Vérification GPU..."
@@ -11,10 +11,10 @@ echo ""
 echo "✅ GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 echo "✅ CUDA: $(nvcc --version | grep release | awk '{print $5}' | sed 's/,//')"
 echo "✅ Compute: $(nvidia-smi --query-gpu=compute_cap --format=csv,noheader)"
-echo "⚡ Performance estimée: 30-60 secondes/génération"
+echo "⚡ Performance estimée: 2-4 minutes/génération"
 
 # Créer les dossiers
-mkdir -p uploads outputs gaussian_workspace
+mkdir -p uploads outputs colmap_workspace
 
 # Variables d'environnement
 export QT_QPA_PLATFORM=offscreen
