@@ -1,0 +1,24 @@
+# Backend 3D - Gaussian Splatting (RTX 5090 Optimized)
+
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Image Processing
+pillow==10.2.0
+opencv-python-headless==4.9.0.80
+
+# AI Segmentation
+rembg==2.0.56
+
+# 3D Processing
+trimesh==4.0.8
+numpy==1.26.3
+
+# PyTorch (sera installé avec CUDA 12.4 via script)
+# torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124
+
+# Gaussian Splatting Dependencies
+plyfile==1.0.3
+tqdm==4.66.1

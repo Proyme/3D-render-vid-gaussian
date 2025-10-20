@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+uploads/
+outputs/
+*.glb
+*.obj
+*.ply
+.env
+COLMAP/
+*.bat
+colmap_workspace/

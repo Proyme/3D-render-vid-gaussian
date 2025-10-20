@@ -1,0 +1,17 @@
+# Backend 3D - Plats 3D
+# Reconstruction 3D avec COLMAP + Segmentation AI
+
+# API Web
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Traitement d'images et 3D
+pillow==10.2.0
+numpy==1.26.3
+opencv-python==4.9.0.80
+trimesh==4.0.8
+open3d==0.18.0
+
+# Segmentation AI (rembg)
+rembg==2.0.56
