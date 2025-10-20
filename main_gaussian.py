@@ -154,7 +154,7 @@ async def get_job_status(job_id: str):
 @app.get("/download/{filename}")
 async def download_model(filename: str):
     """
-    Télécharge un modèle 3D généré (PLY Gaussian Splatting)
+    Télécharge un modèle 3D généré (PLY Gaussian Splatting avec mesh)
     """
     file_path = OUTPUT_DIR / filename
     
@@ -163,8 +163,13 @@ async def download_model(filename: str):
     
     return FileResponse(
         path=file_path,
-        media_type="application/octet-stream",
-        filename=filename
+        media_type="model/ply",
+        filename=filename,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Expose-Headers": "Content-Length",
+            "Cache-Control": "no-cache"
+        }
     )
 
 @app.delete("/cleanup")
