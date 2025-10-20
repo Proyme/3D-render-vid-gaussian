@@ -46,24 +46,26 @@ def reconstruct_3d_gaussian(video_path: str, output_glb: str):
             print("  ❌ Échec estimation poses")
             return False
         
-        # Étape 3 : Gaussian Splatting (GPU 100%)
-        print("  3/4 Gaussian Splatting (GPU RTX 5090 - 100%)...")
-        success = run_gaussian_splatting(workspace, output_dir)
+        # Étape 3 : MVS Dense Reconstruction (COLMAP)
+        print("  3/4 Reconstruction dense (MVS)...")
+        dense_dir = workspace / "dense"
+        dense_dir.mkdir(exist_ok=True)
         
+        success = run_colmap_mvs(workspace, dense_dir)
         if not success:
-            print("  ❌ Échec Gaussian Splatting")
+            print("  ❌ Échec reconstruction dense")
             return False
         
-        # Étape 4 : Reconstruction de surface (Points → Mesh)
-        print("  4/4 Reconstruction de surface (Poisson)...")
-        ply_source = output_dir / "point_cloud" / "iteration_7000" / "point_cloud.ply"
+        # Étape 4 : Reconstruction de surface (Screened Poisson)
+        print("  4/4 Reconstruction de surface (Mesh)...")
+        dense_ply = dense_dir / "fused.ply"
         
-        if not ply_source.exists():
-            print(f"  ❌ Fichier PLY non trouvé: {ply_source}")
+        if not dense_ply.exists():
+            print(f"  ❌ PLY dense non trouvé: {dense_ply}")
             return False
         
-        # Convertir points → mesh avec Open3D
-        success = reconstruct_surface_mesh(str(ply_source), output_glb)
+        # Convertir nuage dense → mesh solide
+        success = reconstruct_surface_mesh(str(dense_ply), output_glb)
         
         if not success:
             print("  ❌ Échec reconstruction surface")
@@ -267,6 +269,66 @@ def run_colmap_minimal(images_dir: Path, workspace: Path):
         print(f"    ❌ Erreur COLMAP: {e}")
         return False
 
+def run_colmap_mvs(workspace: Path, dense_dir: Path):
+    """
+    COLMAP MVS (Multi-View Stereo) pour reconstruction dense
+    Génère un nuage de points DENSE avec couleurs
+    """
+    sparse_dir = workspace / "sparse" / "0"
+    images_dir = workspace / "images"
+    
+    colmap_exe = "colmap"
+    
+    try:
+        # Image undistortion
+        print("    📐 Undistortion des images...")
+        result = subprocess.run([
+            colmap_exe, "image_undistorter",
+            "--image_path", str(images_dir),
+            "--input_path", str(sparse_dir),
+            "--output_path", str(dense_dir),
+            "--output_type", "COLMAP"
+        ], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"    ❌ Undistortion failed: {result.stderr}")
+            return False
+        
+        # Patch match stereo (GPU)
+        print("    🎨 Stereo matching (GPU)...")
+        result = subprocess.run([
+            colmap_exe, "patch_match_stereo",
+            "--workspace_path", str(dense_dir),
+            "--workspace_format", "COLMAP",
+            "--PatchMatchStereo.geom_consistency", "true",
+            "--PatchMatchStereo.gpu_index", "0"
+        ], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"    ❌ Stereo matching failed: {result.stderr}")
+            return False
+        
+        # Stereo fusion (nuage de points dense)
+        print("    🔗 Fusion du nuage dense...")
+        result = subprocess.run([
+            colmap_exe, "stereo_fusion",
+            "--workspace_path", str(dense_dir),
+            "--workspace_format", "COLMAP",
+            "--input_type", "geometric",
+            "--output_path", str(dense_dir / "fused.ply")
+        ], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"    ❌ Stereo fusion failed: {result.stderr}")
+            return False
+        
+        print("    ✅ MVS terminé - Nuage dense créé")
+        return True
+        
+    except Exception as e:
+        print(f"    ❌ Erreur MVS: {e}")
+        return False
+
 def run_gaussian_splatting(workspace: Path, output_dir: Path):
     """
     Gaussian Splatting - GPU 100%
@@ -448,13 +510,13 @@ def convert_gaussian_to_glb(ply_path: str, glb_path: str):
 
 def reconstruct_surface_mesh(ply_input: str, ply_output: str):
     """
-    Reconstruction de surface: Point Cloud → Mesh avec faces
-    Utilise Ball Pivoting + Alpha Shapes (Open3D)
+    Reconstruction de surface: Point Cloud Dense → Mesh solide avec faces
+    Utilise Screened Poisson (optimal pour nuages denses MVS)
     """
     try:
         import open3d as o3d
         
-        print("    📊 Chargement du nuage de points...")
+        print("    📊 Chargement du nuage de points dense...")
         pcd = o3d.io.read_point_cloud(ply_input)
         
         num_points = len(pcd.points)
@@ -468,50 +530,53 @@ def reconstruct_surface_mesh(ply_input: str, ply_output: str):
         has_colors = pcd.has_colors()
         print(f"    ✓ Couleurs: {'Oui' if has_colors else 'Non'}")
         
-        # Nettoyer le point cloud
-        print("    🧹 Nettoyage du nuage de points...")
+        # Nettoyer outliers
+        print("    🧹 Nettoyage des outliers...")
         pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
-        pcd, _ = pcd.remove_radius_outlier(nb_points=16, radius=0.05)
+        print(f"    ✓ {len(pcd.points)} points après nettoyage")
         
-        # Estimer les normales
+        # Estimer les normales (crucial pour Poisson)
         print("    🔍 Estimation des normales...")
         pcd.estimate_normals(
-            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.05, max_nn=30)
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.03, max_nn=30)
         )
         pcd.orient_normals_consistent_tangent_plane(30)
         
-        # Calculer les distances moyennes entre points
-        distances = pcd.compute_nearest_neighbor_distance()
-        avg_dist = np.mean(distances)
-        
-        # Ball Pivoting Algorithm
-        print("    🎨 Reconstruction de surface (Ball Pivoting)...")
-        radii = [avg_dist * 1.5, avg_dist * 2, avg_dist * 3]
-        mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
+        # Screened Poisson Surface Reconstruction
+        print("    🎨 Reconstruction de surface (Screened Poisson)...")
+        mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
             pcd,
-            o3d.utility.DoubleVector(radii)
+            depth=10,  # Haute qualité pour nuage dense
+            width=0,
+            scale=1.1,
+            linear_fit=False
         )
         
         num_triangles = len(mesh.triangles)
         print(f"    ✓ {num_triangles} triangles générés")
         
-        if num_triangles == 0:
-            print("    ⚠️  Ball Pivoting échoué, essai avec Alpha Shapes...")
-            # Fallback: Alpha Shapes
-            alpha = avg_dist * 2.5
-            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
-            num_triangles = len(mesh.triangles)
-            print(f"    ✓ {num_triangles} triangles générés (Alpha Shapes)")
+        # Supprimer les artefacts (triangles de faible densité)
+        print("    🧹 Suppression des artefacts...")
+        densities = np.asarray(densities)
+        density_threshold = np.quantile(densities, 0.05)  # Garder 95% des triangles
+        vertices_to_remove = densities < density_threshold
+        mesh.remove_vertices_by_mask(vertices_to_remove)
         
-        if num_triangles == 0:
-            print("    ❌ Impossible de créer un mesh")
-            return False
+        print(f"    ✓ {len(mesh.triangles)} triangles après nettoyage")
         
-        # Transférer les couleurs
+        # Transférer les couleurs du point cloud
         if has_colors:
             print("    🎨 Transfert des couleurs...")
-            # Interpoler les couleurs du point cloud vers le mesh
-            mesh.vertex_colors = pcd.colors
+            # Interpoler les couleurs du nuage vers le mesh
+            mesh.paint_uniform_color([0.7, 0.7, 0.7])  # Gris par défaut
+            
+            # Chercher la couleur la plus proche pour chaque vertex
+            pcd_tree = o3d.geometry.KDTreeFlann(pcd)
+            colors = []
+            for vertex in mesh.vertices:
+                [_, idx, _] = pcd_tree.search_knn_vector_3d(vertex, 1)
+                colors.append(pcd.colors[idx[0]])
+            mesh.vertex_colors = o3d.utility.Vector3dVector(colors)
         
         # Nettoyer le mesh
         print("    🧹 Nettoyage du mesh...")
@@ -522,23 +587,24 @@ def reconstruct_surface_mesh(ply_input: str, ply_output: str):
         
         # Lisser légèrement
         print("    ✨ Lissage...")
-        mesh = mesh.filter_smooth_simple(number_of_iterations=2)
+        mesh = mesh.filter_smooth_simple(number_of_iterations=1)
         
         # Recalculer les normales
         mesh.compute_vertex_normals()
         
-        # Simplifier si nécessaire
+        # Simplifier si trop de triangles
         num_triangles = len(mesh.triangles)
-        if num_triangles > 100000:
-            print(f"    🔧 Simplification ({num_triangles} → 100k triangles)...")
-            mesh = mesh.simplify_quadric_decimation(100000)
+        if num_triangles > 150000:
+            print(f"    🔧 Simplification ({num_triangles} → 150k triangles)...")
+            mesh = mesh.simplify_quadric_decimation(150000)
             mesh.compute_vertex_normals()
+            print(f"    ✓ {len(mesh.triangles)} triangles finaux")
         
         # Sauvegarder
         print(f"    💾 Sauvegarde du mesh...")
         o3d.io.write_triangle_mesh(ply_output, mesh, write_vertex_colors=has_colors)
         
-        print(f"    ✅ Mesh avec {len(mesh.triangles)} faces et couleurs créé")
+        print(f"    ✅ Mesh solide avec {len(mesh.triangles)} faces créé")
         return True
         
     except Exception as e:
